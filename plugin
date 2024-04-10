@@ -1,0 +1,101 @@
+<?php
+/*
+Plugin Name: Unified Secure Checkout and Shared Cart
+Plugin URI: https://example.com/
+Description: Securely handles checkout processes and enables shared cart functionality for an e-commerce website.
+Version: 1.0
+Author: Your Name
+Author URI: https://example.com/
+*/
+
+// Create shared carts table upon plugin activation
+function create_shared_carts_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'shared_carts';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        cart_id varchar(255) NOT NULL,
+        user_id bigint(20) unsigned NOT NULL,
+        created_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
+        PRIMARY KEY  (id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+register_activation_hook(__FILE__, 'create_shared_carts_table');
+
+// Initialize REST API controller for checkout processes
+function init_checkout_api() {
+    include_once plugin_dir_path(__FILE__) . 'includes/class-checkout-api.php';
+    $checkout_api = new Checkout_API();
+    $checkout_api->register_routes();
+}
+add_action('rest_api_init', 'init_checkout_api');
+
+// Register shortcode to display shared carts
+function display_shared_carts($atts) {
+    // Retrieve shared carts from the database
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'shared_carts';
+    $shared_carts = $wpdb->get_results("SELECT * FROM $table_name");
+
+    // Display shared carts
+    ob_start();
+    include plugin_dir_path(__FILE__) . 'templates/shared-carts.php';
+    return ob_get_clean();
+}
+add_shortcode('shared_carts', 'display_shared_carts');
+
+// Enqueue CSS styles for checkout pages
+function enqueue_checkout_styles() {
+    wp_enqueue_style('checkout-styles', plugin_dir_url(__FILE__) . 'assets/css/checkout.css');
+}
+add_action('wp_enqueue_scripts', 'enqueue_checkout_styles');
+
+// Add admin menu for plugin settings
+function add_plugin_menu() {
+    add_menu_page(
+        'Unified Secure Checkout and Shared Cart',
+        'Unified Checkout',
+        'manage_options',
+        'unified-checkout-settings',
+        'render_plugin_settings'
+    );
+}
+add_action('admin_menu', 'add_plugin_menu');
+
+// Render plugin settings page
+function render_plugin_settings() {
+    include plugin_dir_path(__FILE__) . 'templates/settings.php';
+}
+
+// Add share button on the checkout page
+function add_share_button() {
+    echo '<button id="share-cart-button">Share Cart</button>';
+}
+add_action('woocommerce_after_checkout_form', 'add_share_button');
+
+// Handle share cart functionality
+function handle_share_cart() {
+    if (isset($_POST['share_cart'])) {
+        // Generate unique cart ID
+        $cart_id = uniqid();
+
+        // Save shared cart to the database
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'shared_carts';
+        $wpdb->insert($table_name, array(
+            'cart_id' => $cart_id,
+            'user_id' => get_current_user_id(),
+            'created_at' => current_time('mysql')
+        ));
+
+        // Redirect to the shared cart URL
+        wp_redirect(home_url('/?shared_cart=' . $cart_id));
+        exit;
+    }
+}
+add_action('init', 'handle_share_cart');
